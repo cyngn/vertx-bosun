@@ -8,6 +8,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
+ * Object representing OpenTsDb metrics.
+ *
  * @author truelove@cyngn.com (Jeremy Truelove) 7/21/15
  */
 public class OpenTsDbMetric {
@@ -23,15 +25,34 @@ public class OpenTsDbMetric {
     public final JsonObject tags;
 
     public OpenTsDbMetric(JsonObject obj) {
-        this(obj.getString(METRIC_FIELD), obj.getValue(VALUE_FIELD), obj.getJsonObject(TAGS_FIELD));
+        if(obj == null) { throw new IllegalArgumentException("You must supply a non-null JsonObject"); }
+
+        this.metric = obj.getString(METRIC_FIELD);
+        this.value = obj.getValue(VALUE_FIELD);
+        this.tags = obj.getJsonObject(TAGS_FIELD);
+        timestamp = System.currentTimeMillis();
+        validateObj();
     }
 
+    /**
+     * Constructor
+     *
+     * @param metric the metric name
+     * @param value the metric value
+     * @param tags any tags associated to the metric
+     */
     public OpenTsDbMetric(String metric, Object value, JsonObject tags) {
         this.metric = metric;
         this.value = value;
         this.tags = tags;
         timestamp = System.currentTimeMillis();
+        validateObj();
+    }
 
+    /**
+     * Is the object valid?
+     */
+    private void validateObj() {
         if(StringUtils.isEmpty(metric)) { throw new IllegalArgumentException("All metrics need a 'name' field"); }
         if(value == null) { throw new IllegalArgumentException("All metrics need a 'value' field");  }
 
@@ -40,8 +61,14 @@ public class OpenTsDbMetric {
         }
     }
 
+    /**
+     * Get the object as a vertx JsonOBject
+     *
+     * @return the metric data in Json form
+     */
     public JsonObject asJson() {
-        JsonObject obj = new JsonObject().put(METRIC_FIELD, metric).put(VALUE_FIELD, value).put(TIMESTAMP_FIELD, timestamp);
+        JsonObject obj = new JsonObject().put(METRIC_FIELD, metric).put(VALUE_FIELD, value)
+                .put(TIMESTAMP_FIELD, timestamp);
 
         JsonObject tagsObj = new JsonObject();
         for(String key : tags.fieldNames()){
@@ -53,6 +80,11 @@ public class OpenTsDbMetric {
         return obj;
     }
 
+    /**
+     * Get a deterministic representation of the metric name including the tags
+     *
+     * @return a unique key to represent this metric
+     */
     public String getDistinctKey() {
         StringBuilder builder = new StringBuilder();
         builder.append(metric);
@@ -62,12 +94,18 @@ public class OpenTsDbMetric {
         Collections.sort(keys);
 
         for (String tag : keys) {
-            builder.append("-").append(tag);
+            builder.append("-").append(tag).append(":").append(tags.getString(tag));
         }
 
         return builder.toString();
     }
 
+    /**
+     * Validate that the object is valid
+     *
+     * @param maxTags the max number of tags that can be used
+     * @return true if valid false otherwise
+     */
     public boolean validate(int maxTags) {
         return tags.size() <= maxTags;
     }
