@@ -7,6 +7,12 @@ package com.cyngn.vertx.bosun;
  */
 public interface BosunResponse {
 
+    /**
+     * Everything went fine with your message.
+     */
     String OK_MSG = "ok";
+    /**
+     * You passed in a metric that is still under the threshold of caching limits and being cached
+     */
     String EXISTS_MSG = "exists";
 }
