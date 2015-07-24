@@ -36,25 +36,67 @@ public class BosunPublisher {
         this.bus = bus;
     }
 
-    public <T> void indexMetric(String metric, T value, JsonObject tags) {
-       indexMetric(metric, value, tags, null);
+    /**
+     * Publish an index to bosun to track
+     *
+     * @param metric the metric name
+     * @param value the value
+     * @param tags the tags associated
+     * @param <T> the type of value int, double etc..
+     */
+    public <T> void index(String metric, T value, JsonObject tags) {
+       index(metric, value, tags, null);
     }
 
-    public <T> void indexMetric(String metric, T value, JsonObject tags,
-                                Handler<AsyncResult<Message<Object>>> onComplete) {
-        sendMessage(getBosunMessage(BosunReporter.INDEX_COMMAND, metric, value, tags), onComplete);
+    /**
+     * Publish an index to bosun to track
+     *
+     * @param metric the metric name
+     * @param value the value
+     * @param tags the tags associated
+     * @param onComplete a handler to receive the result of the call
+     * @param <T> the type of value int, double etc..
+     * @param <U> the type of object coming back in the response
+     */
+    public <T,U> void index(String metric, T value, JsonObject tags,
+                            Handler<AsyncResult<Message<U>>> onComplete) {
+        send(getBosunMessage(BosunReporter.INDEX_COMMAND, metric, value, tags), onComplete);
     }
 
-    public <T> void putMetric(String metric, T value, JsonObject tags) {
-        putMetric(metric, value, tags, null);
+    /**
+     * Publish a metric to bosun to be indexed and passed on to OpenTsDb
+     *
+     * @param metric the metric name
+     * @param value the value
+     * @param tags the tags associated
+     * @param <T> the type of value int, double etc..
+     */
+    public <T> void put(String metric, T value, JsonObject tags) {
+        put(metric, value, tags, null);
     }
 
-    public <T> void putMetric(String metric, T value, JsonObject tags,
-                              Handler<AsyncResult<Message<Object>>> onComplete) {
-        sendMessage(getBosunMessage(BosunReporter.PUT_COMMAND, metric, value, tags), onComplete);
+    /**
+     * Publish a metric to bosun to be indexed and passed on to OpenTsDb
+     *
+     * @param metric the metric name
+     * @param value the value
+     * @param tags the tags associated
+     * @param onComplete a handler to receive the result of the call
+     * @param <T> the type of value int, double etc..
+     * @param <U> the type of object coming back in the response
+     */
+    public <T,U> void put(String metric, T value, JsonObject tags,
+                          Handler<AsyncResult<Message<U>>> onComplete) {
+        send(getBosunMessage(BosunReporter.PUT_COMMAND, metric, value, tags), onComplete);
     }
 
-    private void sendMessage(JsonObject msg, Handler<AsyncResult<Message<Object>>> onComplete) {
+    /**
+     * Send a metric message over to the vertx-bosun listener
+     *
+     * @param msg the message to send
+     * @param onComplete a handler potentially to pass along
+     */
+    private <U> void send(JsonObject msg, Handler<AsyncResult<Message<U>>> onComplete) {
         if (onComplete != null) {
             bus.send(address, msg, onComplete);
         } else {
@@ -62,6 +104,16 @@ public class BosunPublisher {
         }
     }
 
+    /**
+     * Put the metric data passed in, in the right format for vertx-bosun
+     *
+     * @param action the action desired, ie index or put
+     * @param metric the metric name
+     * @param value the value
+     * @param tags the tags associated
+     * @param <T> the type of value int, double etc..
+     * @return the JsonObject representing the metric data
+     */
     private static <T> JsonObject getBosunMessage(String action, String metric, T value, JsonObject tags) {
         return  new JsonObject()
                 .put(BosunReporter.ACTION_FIELD, action)

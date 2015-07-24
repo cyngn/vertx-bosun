@@ -14,7 +14,10 @@
  */
 package com.cyngn.vertx.bosun;
 
-import io.vertx.core.*;
+import io.vertx.core.AsyncResult;
+import io.vertx.core.DeploymentOptions;
+import io.vertx.core.Handler;
+import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
@@ -26,6 +29,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.unit.Async;
 import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
+import org.apache.commons.lang.StringUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -39,7 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * @author truelove@cyngn.com (Jeremy Truelove) 11/10/14
  */
-//@Ignore("Integration tests, comment out annotation to run the tests")
+@Ignore("Integration tests, comment out annotation to run the tests")
 @RunWith(VertxUnitRunner.class)
 public class BosunReporterTests {
 
@@ -56,10 +60,9 @@ public class BosunReporterTests {
         JsonObject config = new JsonObject();
         config.put("address", topic);
         JsonArray array = new JsonArray();
-        array.add(new JsonObject().put("host", "bosun-docker.dev-boxy.cyanogen.net").put("port", 80));
-        //array.add(new JsonObject().put("host", "bosun-docker.dev-boxy.cyanogen.net").put("port", 8070));
+        array.add(new JsonObject().put("host", "localhost").put("port", 8070));
         config.put("hosts", array);
-        config.put("maxTags", 1);
+        config.put("max_tags", 1);
 
         Async async = context.async();
         vertx.deployVerticle(BosunReporter.class.getName(), new DeploymentOptions().setConfig(config),
@@ -80,7 +83,7 @@ public class BosunReporterTests {
         vertx.undeploy(deployment.deploymentID());
     }
 
-/*
+
     @Test
     public void testInvalidAction(TestContext context) throws Exception {
         JsonObject metric = new JsonObject();
@@ -112,8 +115,8 @@ public class BosunReporterTests {
     @Test
     public void testNoTags(TestContext context) throws Exception {
         JsonObject metric = new JsonObject();
-        metric.put("action", OpenTsDbReporter.ADD_COMMAND);
-        metric.put("name", "test.value");
+        metric.put("action", BosunReporter.PUT_COMMAND);
+        metric.put("metric", "test.value");
         metric.put("value", "34.4");
         Async async = context.async();
         eb.send(topic, metric, new Handler<AsyncResult<Message<JsonObject>>>() {
@@ -125,37 +128,73 @@ public class BosunReporterTests {
                 async.complete();
             }
         });
-    }*/
+    }
+
+    @Test
+    public void testNoName(TestContext context) throws Exception {
+        JsonObject metric = new JsonObject();
+        metric.put("action", BosunReporter.PUT_COMMAND);
+        metric.put("value", "34.4");
+        Async async = context.async();
+        eb.send(topic, metric, new Handler<AsyncResult<Message<JsonObject>>>() {
+            @Override
+            public void handle(AsyncResult<Message<JsonObject>> result) {
+                context.assertTrue(result.failed());
+                context.assertTrue(result.cause() instanceof ReplyException);
+                context.assertEquals(result.cause().getMessage(), "All metrics need a 'name' field");
+                async.complete();
+            }
+        });
+    }
+
+    @Test
+    public void testNoValue(TestContext context) throws Exception {
+        JsonObject metric = new JsonObject();
+        metric.put("action", BosunReporter.PUT_COMMAND);
+        metric.put("metric", "test.metric");
+        Async async = context.async();
+        eb.send(topic, metric, new Handler<AsyncResult<Message<JsonObject>>>() {
+            @Override
+            public void handle(AsyncResult<Message<JsonObject>> result) {
+                context.assertTrue(result.failed());
+                context.assertTrue(result.cause() instanceof ReplyException);
+                context.assertEquals(result.cause().getMessage(), "All metrics need a 'value' field");
+                async.complete();
+            }
+        });
+    }
 
     @Test
     public void testSend(TestContext context) throws Exception {
-
         Async async = context.async();
-        publisher.indexMetric("vertx.bosun.test", 50, new JsonObject().put("foo", "bar"), event -> {
-            if (event.failed()) {
-                context.fail();
-                return;
-            }
+        publisher.index("vertx.bosun.test", 50, new JsonObject().put("foo", "bar"),
+                (AsyncResult<Message<JsonObject>> event) -> {
+                    if (event.failed()) {
+                        context.fail();
+                        return;
+                    }
 
-            context.assertEquals(BosunResponse.OK_MSG, event.result().body());
+                    context.assertEquals(BosunResponse.OK_MSG, event.result().body().getString(BosunReporter.RESULT_FIELD));
 
-            publisher.indexMetric("vertx.bosun.test", 70, new JsonObject().put("foo", "bar"), event2 -> {
-                if (event2.failed()) {
-                    context.fail();
-                    return;
-                }
+                    publisher.index("vertx.bosun.test", 70, new JsonObject().put("foo", "bar"),
+                            (AsyncResult<Message<JsonObject>> event2) -> {
+                                if (event2.failed()) {
+                                    context.fail();
+                                    return;
+                                }
 
-                context.assertEquals(BosunResponse.EXISTS_MSG, event2.result().body());
-                async.complete();
-            });
-        });
+                                context.assertEquals(BosunResponse.EXISTS_MSG,
+                                        event2.result().body().getString(BosunReporter.RESULT_FIELD));
+                                async.complete();
+                            });
+                });
     }
-/*
+
     @Test
     public void testSendMany(TestContext context) throws Exception {
         JsonObject metric = new JsonObject();
-        metric.put("action", OpenTsDbReporter.ADD_COMMAND);
-        metric.put("name", "test.value");
+        metric.put("action", BosunReporter.INDEX_COMMAND);
+        metric.put("metric", "test.value");
         metric.put("value", "34.4");
         metric.put("tags", new JsonObject().put("foo", "bar"));
 
@@ -163,10 +202,25 @@ public class BosunReporterTests {
         AtomicInteger count = new AtomicInteger(0);
         Async async = context.async();
 
+        AtomicInteger okCount = new AtomicInteger(0);
+
         Handler<AsyncResult<Message<JsonObject>>> handler = result -> {
             if (result.failed()) { context.fail(); }
-            context.assertEquals("ok", result.result().body());
-            if(count.incrementAndGet() == totalMessages) { async.complete(); }
+
+            String response = result.result().body().getString(BosunReporter.RESULT_FIELD);
+            if (StringUtils.equals(BosunResponse.OK_MSG, response)) {
+                okCount.incrementAndGet();
+            }
+            else if (StringUtils.equals(BosunResponse.EXISTS_MSG, response)) {
+            } else { context.fail(); }
+
+            if(count.incrementAndGet() == totalMessages) {
+                if (okCount.get() != 1) {
+                    context.fail();
+                    return;
+                }
+                async.complete();
+            }
         };
 
         for(int i = 0; i < totalMessages; i++) { eb.send(topic, metric, new DeliveryOptions(), handler); }
@@ -175,8 +229,8 @@ public class BosunReporterTests {
     @Test
     public void testTooManyTags(TestContext context) throws Exception {
         JsonObject metric = new JsonObject();
-        metric.put("action", OpenTsDbReporter.ADD_COMMAND);
-        metric.put("name", "test.value");
+        metric.put("action", BosunReporter.PUT_COMMAND);
+        metric.put("metric", "test.value");
         metric.put("value", "34.4");
         metric.put("tags",
                 new JsonObject().put("foo", "bar")
@@ -187,30 +241,9 @@ public class BosunReporterTests {
             public void handle(AsyncResult<Message<JsonObject>> result) {
                 context.assertTrue(result.failed());
                 context.assertTrue(result.cause() instanceof ReplyException);
-                context.assertEquals(result.cause().getMessage(), "You specified too many tags");
+                context.assertEquals(result.cause().getMessage(), "Cannot send more than 1 tags, 2 were attempted");
                 async.complete();
             }
         });
     }
-
-    @Test
-    public void testSendIllegalCharacters(TestContext context) throws Exception {
-        JsonObject metric = new JsonObject();
-        metric.put("action", OpenTsDbReporter.ADD_COMMAND);
-        metric.put("name", "@@@@test@value");
-        metric.put("value", "34.4");
-        metric.put("tags", new JsonObject().put("foo", "bar"));
-
-        Async async = context.async();
-        eb.consumer(OpenTsDbReporter.ERROR_MESSAGE_ADDRESS, new Handler<Message<JsonObject>>() {
-            @Override
-            public void handle(Message<JsonObject> event) {
-                context.assertEquals(EventBusMessage.INVALID_DATA.toString(), event.body().getString("error"));
-                async.complete();
-            }
-        });
-
-        eb.send(topic, metric, new DeliveryOptions());
-    }*/
-
 }
